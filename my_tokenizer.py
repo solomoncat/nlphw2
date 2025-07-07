@@ -72,7 +72,6 @@ class BaseTokenizer(ABC):
         Get the size of the vocabulary
         
         Returns:
-            The number of tokens in the vocabulary
         """
         return len(self.token_to_id)
     
@@ -107,44 +106,67 @@ class BPETokenizer(BaseTokenizer):
     def __init__(self, vocab_size: int):
         super().__init__()
         self.vocab_size = vocab_size
+
+class BPETokenizer(BaseTokenizer):
+    def __init__(self, vocab_size: int):
+        super().__init__()
+        self.vocab_size = vocab_size
+
     def train(self, texts: List[str]) -> None:
-        _initialvocabsize = self.get_vocab_size()
-        while self.get_vocab_size() - _initialvocabsize < self.vocab_size:
-            _vocab = {}
-            for line in texts:
-                line = line.strip().lower()
-                words = line.split()
-                for word in words:
-                    chars = tuple(list(word) + ["</w>"])
-                    _vocab[chars] = _vocab.get(chars, 0) + 1
+        # Step 1: Initialize vocab from training texts
+        vocab = {}
+        for line in texts:
+            line = line.strip().lower()
+            words = line.split()
+            for word in words:
+                chars = tuple(list(word) + ["</w>"])
+                vocab[chars] = vocab.get(chars, 0) + 1
 
-            _pairs = {}
-            for example in _vocab:
-                for (a, b) in zip(example, example[1:]):
-                    _pairs[(a, b)] = _pairs.get((a, b), 0) + _vocab[example]
+        # Step 2: Add all characters to token_to_id
+        for word in vocab:
+            for token in word:
+                if token not in self.token_to_id:
+                    idx = len(self.token_to_id)
+                    self.token_to_id[token] = idx
+                    self.id_to_token[idx] = token
 
-            _maxpair = max(_pairs, key=_pairs.get)
-            _mergedvocab = {}
-            a, b = _maxpair
+        # Step 3: Iteratively merge pairs
+        while len(self.token_to_id) < self.vocab_size:
+            # Count all adjacent pairs
+            pairs = {}
+            for word, freq in vocab.items():
+                for i in range(len(word) - 1):
+                    pair = (word[i], word[i + 1])
+                    pairs[pair] = pairs.get(pair, 0) + freq
+
+            if not pairs:
+                break
+
+            # Most frequent pair
+            best_pair = max(pairs, key=pairs.get)
+            a, b = best_pair
             ab = a + b
 
-            for _word, _frequency in _vocab.items():
+            # Merge best pair in vocab
+            new_vocab = {}
+            for word, freq in vocab.items():
                 new_word = []
                 i = 0
-                while i < len(_word):
-                    if i < len(_word) - 1 and _word[i] == a and _word[i + 1] == b:
+                while i < len(word):
+                    if i < len(word) - 1 and word[i] == a and word[i + 1] == b:
                         new_word.append(ab)
                         i += 2
                     else:
-                        new_word.append(_word[i])
+                        new_word.append(word[i])
                         i += 1
-                _mergedvocab[tuple(new_word)] = _mergedvocab.get(tuple(new_word), 0) + _frequency
+                new_vocab[tuple(new_word)] = freq
+            vocab = new_vocab
 
-            _vocab = _mergedvocab
+            # Add new merged token to vocab
             if ab not in self.token_to_id:
-                new_id = len(self.token_to_id)
-                self.token_to_id[ab] = new_id
-                self.id_to_token[new_id] = ab
+                idx = len(self.token_to_id)
+                self.token_to_id[ab] = idx
+                self.id_to_token[idx] = ab
 
     def encode(self, text: str) -> List[int]:
         _lower = text.strip().lower().split()
